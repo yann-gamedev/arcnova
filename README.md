@@ -1,4 +1,16 @@
-<div align="center">
+# ArcNova — Linux-styled Command Shell for Windows
+
+<p align="center">
+  <strong>Run <code>ls</code>, <code>grep</code>, <code>rm -rf</code>, and your everyday tools natively on Windows, without WSL.</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat&logo=cplusplus&logoColor=white" alt="C++ 17">
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011%20x64-0078D4?style=flat" alt="Windows 10 | 11 x64">
+  <img src="https://img.shields.io/badge/MinGW--w64-g%2B%2B-A42E2B?style=flat&logo=gnu&logoColor=white" alt="MinGW-w64 g++">
+  <img src="https://img.shields.io/badge/Shell-Linux--styled-4EAA25?style=flat&logo=gnubash&logoColor=white" alt="Linux-styled shell">
+  <img src="https://img.shields.io/badge/Dependencies-0-2EA44F?style=flat" alt="Zero dependencies">
+</p>
 
 ```text
         ▲
@@ -7,12 +19,6 @@
      ╱─────╲      v1.0.0 • Windows_NT x64
       ─────
 ```
-
-**A fast, Linux-styled command shell for Windows, written in native C++17.**
-
-`C++17` · `Win32 API` · `std::filesystem` · `Windows 10/11 x64` · `Zero third-party dependencies`
-
-</div>
 
 ---
 
