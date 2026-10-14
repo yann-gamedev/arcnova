@@ -30,6 +30,12 @@ int main() {
                 }
                 break; // EOF also exits cleanly for redirected input.
             }
+            // Piped input (and some hosts writing UTF-8) may start with a byte order
+            // mark; without stripping it, the first command name is not recognised.
+            constexpr char utf8Bom[] = "\xEF\xBB\xBF";
+            if (line.compare(0, 3, utf8Bom) == 0) {
+                line.erase(0, 3);
+            }
             shell.executeLine(line);
         }
         return EXIT_SUCCESS;
