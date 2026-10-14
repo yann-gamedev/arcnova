@@ -1,0 +1,10 @@
+# Local project reference documents
+/AGENT.md
+/PRD.md
+
+# Build artifacts
+*.exe
+*.o
+*.obj
+*.pdb
+/build/
