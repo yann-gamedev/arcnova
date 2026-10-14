@@ -5,7 +5,6 @@
 #include <cstdlib>
 #include <exception>
 #include <iostream>
-#include <iomanip>
 #include <string>
 
 int main() {
@@ -31,25 +30,7 @@ int main() {
                 }
                 break; // EOF also exits cleanly for redirected input.
             }
-            try {
-                const auto command = arcnova::core::parseInput(line, shell.getCurrentPath());
-                if (command.name.empty()) {
-                    continue;
-                }
-                // Temporary parser diagnostics for Phase 2, Part 1.
-                std::cout << "[parse] name=" << std::quoted(command.name) << " args=[";
-                for (std::size_t index = 0; index < command.args.size(); ++index) {
-                    if (index != 0) {
-                        std::cout << ", ";
-                    }
-                    std::cout << std::quoted(command.args[index]);
-                }
-                std::cout << "] flags=" << std::quoted(command.flags) << '\n';
-                shell.executeCommand(command);
-            } catch (const arcnova::core::ParseError& error) {
-                shell.handleParseError();
-                std::cerr << "ArcNova: parse error: " << error.what() << '\n';
-            }
+            shell.executeLine(line);
         }
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

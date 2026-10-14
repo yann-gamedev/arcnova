@@ -142,7 +142,7 @@ void Shell::executeLine(const std::string& line) {
         executeCommand(parseInput(line, currentPath));
     } catch (const ParseError& error) {
         handleParseError();
-        std::cerr << "ArcNova: " << error.what() << '\n';
+        std::cerr << "ArcNova: parse error: " << error.what() << '\n';
     }
 }
 
