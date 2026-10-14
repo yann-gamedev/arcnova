@@ -1,4 +1,6 @@
 #include "core/shell.hpp"
+#include "core/executor.hpp"
+#include "core/terminal.hpp"
 #include "commands/fs_commands.hpp"
 #include "commands/sys_commands.hpp"
 #include "ui/banner.hpp"
@@ -152,8 +154,13 @@ void Shell::executeCommand(const ParsedCommand& parsed) {
 
     const auto command = commands.find(name);
     if (command == commands.end()) {
-        std::cerr << "ArcNova: command not found: " << name << '\n';
-        lastExitCode = 127;
+        std::cout << std::flush;
+        std::cerr << std::flush;
+        lastExitCode = executeExternalCommand(parsed.rawInput, currentPath);
+        // Consume the notification after the child handles Ctrl+C; do not discard
+        // the next input line because of an interrupt from the previous command.
+        (void)consumeInterrupt();
+        refreshCurrentPath();
         return;
     }
 
