@@ -4,8 +4,8 @@ CXXFLAGS = -std=c++17 -m64 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -f
 LDFLAGS = -m64 -static -static-libgcc -static-libstdc++ -s
 
 TARGET = ArcNova.exe
-SOURCES = src/main.cpp src/core/terminal.cpp src/core/shell.cpp src/core/parser.cpp src/commands/fs_commands.cpp src/commands/sys_commands.cpp src/core/executor.cpp
-HEADERS = include/ui/colors.hpp include/ui/banner.hpp include/core/terminal.hpp include/core/shell.hpp include/core/parser.hpp include/commands/fs_commands.hpp include/commands/sys_commands.hpp include/core/executor.hpp
+SOURCES = src/main.cpp src/core/terminal.cpp src/core/shell.cpp src/core/parser.cpp src/commands/fs_commands.cpp src/commands/sys_commands.cpp src/core/executor.cpp src/core/input.cpp
+HEADERS = include/ui/colors.hpp include/ui/banner.hpp include/core/terminal.hpp include/core/shell.hpp include/core/parser.hpp include/commands/fs_commands.hpp include/commands/sys_commands.hpp include/core/executor.hpp include/core/input.hpp
 LDLIBS = -ladvapi32
 
 .PHONY: all clean

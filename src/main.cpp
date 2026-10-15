@@ -1,5 +1,6 @@
 #include "core/terminal.hpp"
 #include "core/shell.hpp"
+#include "core/input.hpp"
 #include "ui/banner.hpp"
 
 #include <cstdlib>
@@ -13,11 +14,12 @@ int main() {
         arcnova::ui::renderWelcomeBanner();
 
         arcnova::core::Shell shell;
+        arcnova::core::InputHandler input;
         std::string line;
         while (shell.isRunning()) {
-            std::cout << shell.formatPrompt() << std::flush;
-            const bool readSucceeded = static_cast<bool>(std::getline(std::cin, line));
-            if (arcnova::core::consumeInterrupt()) {
+            const bool readSucceeded = input.readLine(shell.formatPrompt(), line);
+            const bool notified = arcnova::core::consumeInterrupt();
+            if (input.wasInterrupted() || notified) {
                 std::cin.clear();
                 shell.handleInterrupt();
                 std::cout << '\n';
