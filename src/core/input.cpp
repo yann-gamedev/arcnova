@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <utility>
 
 namespace arcnova::core {
 namespace {
@@ -69,7 +70,98 @@ void redraw(const std::string& prompt, const std::wstring& buffer, std::size_t c
     if (cells != 0) { std::cout << "\033[" << cells << 'D'; }
     std::cout << std::flush;
 }
+
+bool startsWith(const std::wstring& text, const std::wstring& prefix) {
+    return prefix.empty() || (text.size() >= prefix.size()
+        && CompareStringOrdinal(text.data(), static_cast<int>(prefix.size()),
+                                prefix.data(), static_cast<int>(prefix.size()), TRUE) == CSTR_EQUAL);
+}
+
+struct Completion {
+    std::vector<std::wstring> candidates;
+    std::size_t start = 0, length = 0, choice = 0;
+};
+
+Completion findCompletions(const std::wstring& buffer, std::size_t cursor,
+                           const std::vector<std::string>& commands) {
+    Completion result;
+    // Locate the full token containing the cursor, respecting either quote style.
+    std::size_t position = 0, tokenIndex = 0;
+    while (position < cursor || position == cursor) {
+        while (position < buffer.size() && (buffer[position] == L' ' || buffer[position] == L'\t')) {
+            if (position == cursor) { break; }
+            ++position;
+        }
+        const auto start = position;
+        wchar_t quote = L'\0';
+        while (position < buffer.size()) {
+            const auto ch = buffer[position];
+            if (quote != L'\0') { if (ch == quote) { quote = L'\0'; } }
+            else if (ch == L'"' || ch == L'\'') { quote = ch; }
+            else if (ch == L' ' || ch == L'\t') { break; }
+            ++position;
+        }
+        if (cursor <= position) { result.start = start; result.length = position - start; break; }
+        ++tokenIndex;
+    }
+    std::wstring prefix;
+    for (auto index = result.start; index < cursor; ++index) {
+        if (buffer[index] != L'"' && buffer[index] != L'\'') { prefix += buffer[index]; }
+    }
+    if (tokenIndex == 0) {
+        for (const auto& name : commands) {
+            const auto wide = decode(name);
+            if (startsWith(wide, prefix)) { result.candidates.push_back(wide); }
+        }
+    } else {
+        try {
+            const auto separator = prefix.find_last_of(L"/\\");
+            const auto parent = separator == std::wstring::npos ? std::wstring{} : prefix.substr(0, separator + 1);
+            const auto leaf = separator == std::wstring::npos ? prefix : prefix.substr(separator + 1);
+            std::wstring directory = parent.empty() ? L"." : parent;
+            const bool home = prefix == L"~" || directory == L"~" || directory.rfind(L"~/", 0) == 0
+                              || directory.rfind(L"~\\", 0) == 0;
+            std::wstring displayParent = parent;
+            std::wstring match = leaf;
+            if (home) {
+                const DWORD size = GetEnvironmentVariableW(L"USERPROFILE", nullptr, 0);
+                if (size == 0) { return result; }
+                std::vector<wchar_t> value(size);
+                const DWORD count = GetEnvironmentVariableW(L"USERPROFILE", value.data(), size);
+                if (count == 0 || count >= size) { return result; }
+                if (prefix == L"~") { displayParent = L"~/"; match.clear(); directory = value.data(); }
+                else { directory = std::wstring(value.data()) + directory.substr(1); }
+            }
+            std::error_code ec;
+            std::filesystem::directory_iterator it(std::filesystem::path(directory), ec), end;
+            if (ec) { return result; }
+            for (; it != end; it.increment(ec)) {
+                if (ec) { break; }
+                const auto name = it->path().filename().wstring();
+                if (!startsWith(name, match)) { continue; }
+                const bool isDirectory = it->is_directory(ec);
+                if (ec) { ec.clear(); continue; }
+                auto candidate = displayParent + name + (isDirectory ? L"/" : L"");
+                // Quote apostrophes too, since the parser treats them as delimiters.
+                if (candidate.find_first_of(L" \t'") != std::wstring::npos) {
+                    candidate = L"\"" + candidate + L"\"";
+                }
+                result.candidates.push_back(std::move(candidate));
+            }
+        } catch (const std::filesystem::filesystem_error&) {
+            result.candidates.clear(); // Failed completion must not disrupt the input line.
+        }
+    }
+    std::sort(result.candidates.begin(), result.candidates.end());
+    return result;
+}
 } // namespace
+
+std::vector<std::string> InputHandler::commandNames;
+
+void InputHandler::setCommandNames(std::vector<std::string> names) {
+    commandNames = std::move(names);
+}
 
 InputHandler::InputHandler() {
     const DWORD count = GetEnvironmentVariableW(L"USERPROFILE", nullptr, 0);
@@ -137,6 +229,7 @@ bool InputHandler::readLine(const std::string& prompt, std::string& line) {
         return false;
     }
     std::wstring buffer, draft;
+    Completion completion;
     std::size_t cursor = 0, historyIndex = history.size();
     std::cout << prompt << std::flush;
     for (;;) {
@@ -148,6 +241,7 @@ bool InputHandler::readLine(const std::string& prompt, std::string& line) {
         }
         if (record.EventType != KEY_EVENT || record.Event.KeyEvent.bKeyDown == FALSE) { continue; }
         const auto& key = record.Event.KeyEvent;
+        if (key.wVirtualKeyCode != VK_TAB) { completion = {}; }
         const bool control = (key.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0;
         const bool alt = (key.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) != 0;
         if (control && key.wVirtualKeyCode == 'C') {
@@ -162,6 +256,20 @@ bool InputHandler::readLine(const std::string& prompt, std::string& line) {
         }
         for (WORD repeat = 0; repeat < key.wRepeatCount; ++repeat) {
             switch (key.wVirtualKeyCode) {
+            case VK_TAB:
+                if (completion.candidates.empty()) {
+                    completion = findCompletions(buffer, cursor, commandNames);
+                }
+                if (!completion.candidates.empty()) {
+                    const auto& candidate = completion.candidates[completion.choice];
+                    if (buffer.size() - completion.length + candidate.size() <= 32766) {
+                        buffer.replace(completion.start, completion.length, candidate);
+                        completion.length = candidate.size();
+                        cursor = completion.start + completion.length;
+                    }
+                    completion.choice = (completion.choice + 1) % completion.candidates.size();
+                }
+                break;
             case VK_RETURN:
                 line = encode(buffer);
                 std::cout << '\n' << std::flush;

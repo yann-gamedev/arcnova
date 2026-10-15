@@ -1,4 +1,5 @@
 #include "core/shell.hpp"
+#include "core/input.hpp"
 #include "core/executor.hpp"
 #include "core/terminal.hpp"
 #include "commands/fs_commands.hpp"
@@ -19,6 +20,7 @@
 #include <sstream>
 #include <system_error>
 #include <vector>
+#include <utility>
 
 namespace arcnova::core {
 namespace {
@@ -102,6 +104,10 @@ Shell::Shell() : homePath(findHomePath()) {
         running = false;
         return 0;
     }});
+    std::vector<std::string> names;
+    names.reserve(commands.size());
+    for (const auto& entry : commands) { names.push_back(entry.first); }
+    InputHandler::setCommandNames(std::move(names));
 }
 
 void Shell::refreshCurrentPath() {

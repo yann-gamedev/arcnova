@@ -80,6 +80,49 @@ Pressing Enter on an empty line simply shows a new prompt. Pressing `Ctrl+C` can
 
 ---
 
+## Interactive Input (v1.1 development)
+
+The v1.1 development build adds raw console editing, persistent command history,
+and smart Tab completion. These features are not included in the v1.0.0 release.
+
+| Key | Action |
+| :--- | :--- |
+| Left / Right | Move the cursor within the input line. |
+| Backspace / Delete | Remove the character before / at the cursor. |
+| Up / Down | Browse command history. Down past the newest entry restores the original draft. |
+| Tab | Complete the active command or path; press repeatedly to cycle through matches. |
+| Ctrl+L | Clear the screen and redraw the prompt and current input. |
+| Ctrl+C | Cancel the current input line without closing ArcNova. |
+| Enter | Submit the line and record it in history. |
+
+### Smart completion
+
+- At the first token, completion uses names from the actual built-in command registry.
+  For example, type `cl` and press Tab repeatedly to switch between `clear` and `cls`.
+- In arguments, completion scans the relevant directory and matches names without
+  distinguishing uppercase and lowercase. Both `/` and `\` path separators are accepted.
+- `~/` expands to `%USERPROFILE%` when scanning, while the completed text retains `~/`.
+- Directories receive a trailing `/`. Paths containing spaces are automatically quoted.
+- Completion operates on the token at the cursor, preserving surrounding text.
+  Editing or moving the cursor resets the candidate cycle.
+- An inaccessible or missing directory leaves the input unchanged.
+
+### Persistent history
+
+Interactive commands are stored as UTF-8 lines in `%USERPROFILE%\.arcnova_history`.
+The file is loaded on startup and saved after each new command. Empty input and
+consecutive duplicates are omitted, and only the most recent 1,000 entries are retained.
+Input redirected from a file or pipe uses line-based reading and is not added to history.
+Console input modes are restored before command execution.
+
+History is plain text and is not encrypted. Avoid typing secrets into commands;
+concurrent ArcNova sessions may overwrite each other's saved history.
+
+For implementation details, manual test scenarios, and current rendering limitations,
+see [the v1.1 development notes](docs/v1.1-input.md).
+
+---
+
 ## Command Reference
 
 Type `help` inside ArcNova to see this list at any time.
@@ -408,14 +451,14 @@ Each test prints a line beginning with `PASS` when it succeeds.
 - `grep` matches literal text, and `-i` ignores case for English letters (A-Z) only.
 - `mv` cannot move items between different drives. Use `cp -r` followed by `rm -r` instead.
 - `rm` deletes permanently and does not use the Recycle Bin.
-- There is no command history, tab completion, or environment variable expansion yet.
+- Command history and Tab completion are available in the v1.1 development build, not the v1.0.0 release. General environment variable expansion is not implemented.
+- Interactive redraw currently targets a single physical terminal line. Wrapped input, CJK character widths, and combining marks are not fully handled.
 
 ---
 
 ## Roadmap
 
-- Command history with arrow-key navigation
-- Tab completion for commands and paths
+- Complete v1.1 interactive input validation and improve Unicode/multiline rendering
 - Native pipes and redirection between built-in commands
 - Environment variable expansion (`$VAR`, `%VAR%`)
 - Configurable prompt and colour themes
