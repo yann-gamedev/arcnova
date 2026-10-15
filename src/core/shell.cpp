@@ -101,6 +101,7 @@ Shell::Shell() : homePath(findHomePath()) {
     commands.emplace("echo", Command{"Print text arguments", cmd::echo, true});
     commands.emplace("whoami", Command{"Print current Windows user", cmd::whoami, true});
     commands.emplace("arcfetch", Command{"Show logo and live system information", cmd::arcfetch, true});
+    commands.emplace("theme", Command{"List or switch UI color themes", cmd::theme, true});
     commands.emplace("touch", Command{"Create files or update timestamps", cmd::touch, true});
     commands.emplace("mkdir", Command{"Create directories (-p: parents)", cmd::mkdir, true});
     commands.emplace("rm", Command{"Remove files/directories (-r, -f)", cmd::rm, true});
@@ -159,7 +160,9 @@ void Shell::refreshCurrentPath() {
 }
 
 std::string Shell::formatPrompt() const {
-    return "arcnova " + displayPath(currentPath, homePath) + " "
+    const auto& palette = ui::colors::currentTheme();
+    return std::string(palette.primary) + "arcnova" + ui::colors::Reset + " "
+           + palette.accent + displayPath(currentPath, homePath) + ui::colors::Reset + " "
            + (lastExitCode == 0 ? ui::colors::Green : ui::colors::Red)
            + u8"❯" + ui::colors::Reset + " ";
 }
@@ -276,7 +279,7 @@ int Shell::clearScreen() {
 
 int Shell::showHelp() const {
     // Explicit ordering keeps the table stable despite unordered_map iteration order.
-    constexpr const char* order[] = {"pwd", "cd", "ls", "touch", "mkdir", "rm", "cp", "mv", "cat", "grep", "echo", "whoami", "arcfetch", "alias", "unalias", "clear", "cls", "help", "exit"};
+    constexpr const char* order[] = {"pwd", "cd", "ls", "touch", "mkdir", "rm", "cp", "mv", "cat", "grep", "echo", "whoami", "arcfetch", "alias", "unalias", "theme", "clear", "cls", "help", "exit"};
     std::ostringstream table;
     constexpr const char* border = "+----------+------------------------------------------+\n";
     table << border

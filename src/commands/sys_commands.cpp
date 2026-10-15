@@ -262,20 +262,39 @@ int arcfetch(const core::ParsedCommand& command) {
         "Uptime:   " + std::to_string(minutes / 60ULL) + "h " + std::to_string(minutes % 60ULL) + "m",
         "Shell:    ArcNova v1.0.0"
     };
+    const auto& palette = ui::colors::currentTheme();
     const std::array<std::string, 8> logo = {
         u8"          ▲", u8"         ╱ ╲", u8"        ╱   ╲",
-        std::string(u8"       ╱  ") + ui::colors::Gold + u8"◯" + ui::colors::Cyan + u8"  ╲",
+        std::string(u8"       ╱  ") + palette.accent + u8"◯" + palette.primary + u8"  ╲",
         u8"      ╱       ╲", u8"     ╱─────────╲", u8"      ─────────", ""
     };
     std::cout << '\n';
     for (std::size_t row = 0; row < logo.size(); ++row) {
         // CHA sets the right-hand column independently of Unicode/ANSI byte lengths.
-        std::cout << ui::colors::Cyan << logo[row] << ui::colors::Reset
+        std::cout << palette.primary << logo[row] << ui::colors::Reset
                   << "\x1b[30G" << (row == 0 ? ui::colors::Bold : "")
                   << info[row] << ui::colors::Reset << '\n';
     }
     std::cout << '\n';
     return std::cout ? 0 : 1;
+}
+
+int theme(const core::ParsedCommand& command) {
+    if (!command.flags.empty() || command.args.size() > 1) {
+        return error("theme", "usage: theme [default|dracula|nord|matrix]", 2);
+    }
+    if (command.args.empty()) {
+        std::cout << "Available themes:";
+        for (const auto& preset : ui::colors::themePresets) {
+            std::cout << ' ' << preset.name;
+        }
+        std::cout << "\nActive theme: " << ui::colors::currentThemeName() << '\n';
+        return std::cout ? 0 : 1;
+    }
+    if (!ui::colors::setTheme(command.args.front())) {
+        return error("theme", "unknown theme '" + command.args.front() + "'", 2);
+    }
+    return 0;
 }
 
 int alias(const core::ParsedCommand& command, core::ConfigManager& config) {

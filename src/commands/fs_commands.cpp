@@ -195,7 +195,7 @@ int ls(const core::ParsedCommand& command) {
             });
             const bool executable = extension == ".exe" || extension == ".bat";
             const char* color = hidden ? "\x1b[38;5;244m"
-                               : directory ? "\x1b[1;38;5;75m"
+                               : directory ? ui::colors::currentTheme().dirColor
                                : executable ? "\x1b[1;38;5;82m" : "\x1b[37m";
             if (longFormat) {
                 std::string size = "-";

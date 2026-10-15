@@ -40,7 +40,7 @@ try {
     if (-not $nav.Out.Contains($root.Replace('\','/')) -or -not $nav.Out.Contains($root) -or
         -not $nav.Err.Contains('previous directory is not set') -or
         -not $nav.Err.Contains('cd: missing:') -or -not $nav.Err.Contains('unsupported flag -z') -or
-        -not $nav.Err.Contains('ls: missing:') -or -not $nav.Out.Contains("arcnova ~ ${esc}[32m")) { throw 'Navigation/error test failed' }
+        -not $nav.Err.Contains('ls: missing:') -or -not $nav.Out.Contains("${esc}[1;38;5;39marcnova${esc}[0m ${esc}[1;38;5;214m~${esc}[0m ${esc}[32m")) { throw 'Navigation/error test failed' }
     'PASS: pwd, Windows paths, cd/home/previous, failure recovery, ls filtering, colors, long format and flags.'
 } finally {
     Remove-Item -LiteralPath $root -Recurse -Force

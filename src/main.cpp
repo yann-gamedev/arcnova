@@ -11,9 +11,8 @@
 int main() {
     try {
         arcnova::core::initConsole();
+        arcnova::core::Shell shell; // Load the startup theme before rendering the banner.
         arcnova::ui::renderWelcomeBanner();
-
-        arcnova::core::Shell shell;
         arcnova::core::InputHandler input;
         std::string line;
         while (shell.isRunning()) {

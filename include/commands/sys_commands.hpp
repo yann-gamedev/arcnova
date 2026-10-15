@@ -8,6 +8,7 @@ int grep(const core::ParsedCommand& command);
 int echo(const core::ParsedCommand& command);
 int whoami(const core::ParsedCommand& command);
 int arcfetch(const core::ParsedCommand& command);
+int theme(const core::ParsedCommand& command);
 // alias | alias <name> | alias <name>="<command>" | alias <name> <command...>
 int alias(const core::ParsedCommand& command, core::ConfigManager& config);
 // unalias <name...> | unalias -a

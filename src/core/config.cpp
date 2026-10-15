@@ -1,4 +1,6 @@
 #include "core/config.hpp"
+#include "core/parser.hpp"
+#include "ui/colors.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -27,8 +29,10 @@ constexpr const char* defaultRc =
     "#   after |, ; and &&. Quote a command name (\"ll\") to bypass an alias.\n"
     "#\n"
     "# At runtime: alias (list), alias <name>=\"<command>\", unalias <name>.\n"
+    "# Themes: default, dracula, nord, matrix. Use theme <name> to switch.\n"
     "# Runtime changes are not saved; edit this file to keep them.\n"
     "\n"
+    "theme default\n"
     "alias ll=\"ls -la\"\n"
     "alias la=\"ls -a\"\n"
     "alias ..=\"cd ..\"\n";
@@ -102,7 +106,22 @@ void ConfigManager::loadRcFile() {
             if (!defineAlias(rest, message)) {
                 std::cerr << "ArcNova: .arcnovarc:" << number << ": " << message << '\n';
             }
-        } else if (keyword != "theme") { // theme is reserved for a later v1.3 stage.
+        } else if (keyword == "theme") {
+            try {
+                const auto command = parseInput(line, {});
+                if (!command.flags.empty() || command.args.size() != 1
+                    || !command.redirectOutFile.empty()) {
+                    message = "usage: theme <name>";
+                } else if (!ui::colors::setTheme(command.args.front())) {
+                    message = "unknown theme '" + command.args.front() + "'";
+                }
+            } catch (const ParseError& error) {
+                message = error.what();
+            }
+            if (!message.empty()) {
+                std::cerr << "ArcNova: .arcnovarc:" << number << ": " << message << '\n';
+            }
+        } else {
             std::cerr << "ArcNova: .arcnovarc:" << number << ": unknown directive '"
                       << keyword << "'\n";
         }
