@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/config.hpp"
 #include "core/parser.hpp"
 
 #include <filesystem>
@@ -36,10 +37,12 @@ private:
     std::filesystem::path previousPath;
     std::filesystem::path homePath;
     std::unordered_map<std::string, Command> commands;
+    ConfigManager config;
     bool running = true;
     int lastExitCode = 0;
 
     void refreshCurrentPath();
+    void refreshAliasCompletions() const;
     int clearScreen();
     int showHelp() const;
 };

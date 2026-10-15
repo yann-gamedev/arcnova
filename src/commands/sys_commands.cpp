@@ -149,6 +149,26 @@ std::string foldCase(std::string text) {
     return text;
 }
 
+// Text after the command word, with original quoting (redirection already removed).
+std::string operandText(const std::string& raw) {
+    auto index = raw.find_first_not_of(" \t");
+    char quote = '\0';
+    for (; index != std::string::npos && index < raw.size(); ++index) {
+        const char ch = raw[index];
+        if (quote != '\0') { if (ch == quote) { quote = '\0'; } }
+        else if (ch == '"' || ch == '\'') { quote = ch; }
+        else if (ch == ' ' || ch == '\t') { break; }
+    }
+    if (index == std::string::npos || index >= raw.size()) { return {}; }
+    const auto first = raw.find_first_not_of(" \t\r\n", index);
+    if (first == std::string::npos) { return {}; }
+    return raw.substr(first, raw.find_last_not_of(" \t\r\n") - first + 1);
+}
+
+void printAlias(const std::string& name, const std::string& value) {
+    std::cout << "alias " << name << "=\"" << value << "\"\n";
+}
+
 } // namespace
 
 int grep(const core::ParsedCommand& command) {
@@ -256,5 +276,42 @@ int arcfetch(const core::ParsedCommand& command) {
     }
     std::cout << '\n';
     return std::cout ? 0 : 1;
+}
+
+int alias(const core::ParsedCommand& command, core::ConfigManager& config) {
+    // Use the raw text so `alias ll ls -la` keeps "-la" and quoting survives.
+    const auto operand = operandText(command.rawInput);
+    if (operand.empty()) {
+        for (const auto& name : config.aliasNames()) {
+            printAlias(name, config.getAliases().at(name));
+        }
+        return std::cout ? 0 : 1;
+    }
+    if (operand.find_first_of("= \t") == std::string::npos) {
+        const auto found = config.getAliases().find(operand);
+        if (found == config.getAliases().end()) { return error("alias", operand + ": not found"); }
+        printAlias(found->first, found->second);
+        return std::cout ? 0 : 1;
+    }
+    std::string message;
+    if (!config.defineAlias(operand, message)) {
+        return error("alias", message + " (usage: alias <name>=\"<command>\")", 2);
+    }
+    return 0;
+}
+
+int unalias(const core::ParsedCommand& command, core::ConfigManager& config) {
+    if (command.flags == "a" && command.args.empty()) {
+        config.clearAliases();
+        return 0;
+    }
+    if (!command.flags.empty() || command.args.empty()) {
+        return error("unalias", "usage: unalias <name...> | unalias -a", 2);
+    }
+    int status = 0;
+    for (const auto& name : command.args) {
+        if (!config.removeAlias(name)) { status = error("unalias", name + ": not found"); }
+    }
+    return status;
 }
 } // namespace arcnova::cmd

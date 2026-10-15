@@ -83,7 +83,8 @@ struct Completion {
 };
 
 Completion findCompletions(const std::wstring& buffer, std::size_t cursor,
-                           const std::vector<std::string>& commands) {
+                           const std::vector<std::string>& commands,
+                           const std::vector<std::string>& aliases) {
     Completion result;
     // Locate the full token containing the cursor, respecting either quote style.
     std::size_t position = 0, tokenIndex = 0;
@@ -109,10 +110,16 @@ Completion findCompletions(const std::wstring& buffer, std::size_t cursor,
         if (buffer[index] != L'"' && buffer[index] != L'\'') { prefix += buffer[index]; }
     }
     if (tokenIndex == 0) {
-        for (const auto& name : commands) {
-            const auto wide = decode(name);
-            if (startsWith(wide, prefix)) { result.candidates.push_back(wide); }
+        for (const auto* names : {&commands, &aliases}) {
+            for (const auto& name : *names) {
+                const auto wide = decode(name);
+                if (startsWith(wide, prefix)) { result.candidates.push_back(wide); }
+            }
         }
+        // An alias may shadow a built-in of the same name; offer it only once.
+        std::sort(result.candidates.begin(), result.candidates.end());
+        result.candidates.erase(std::unique(result.candidates.begin(), result.candidates.end()),
+                                result.candidates.end());
     } else {
         try {
             const auto separator = prefix.find_last_of(L"/\\");
@@ -158,9 +165,14 @@ Completion findCompletions(const std::wstring& buffer, std::size_t cursor,
 } // namespace
 
 std::vector<std::string> InputHandler::commandNames;
+std::vector<std::string> InputHandler::aliasNames;
 
 void InputHandler::setCommandNames(std::vector<std::string> names) {
     commandNames = std::move(names);
+}
+
+void InputHandler::setAliasNames(std::vector<std::string> names) {
+    aliasNames = std::move(names);
 }
 
 InputHandler::InputHandler() {
@@ -258,7 +270,7 @@ bool InputHandler::readLine(const std::string& prompt, std::string& line) {
             switch (key.wVirtualKeyCode) {
             case VK_TAB:
                 if (completion.candidates.empty()) {
-                    completion = findCompletions(buffer, cursor, commandNames);
+                    completion = findCompletions(buffer, cursor, commandNames, aliasNames);
                 }
                 if (!completion.candidates.empty()) {
                     const auto& candidate = completion.candidates[completion.choice];

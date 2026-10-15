@@ -125,10 +125,26 @@ Shell::Shell() : homePath(findHomePath()) {
         running = false;
         return 0;
     }});
+    commands.emplace("alias", Command{"List or define aliases (name=\"command\")", [this](const ParsedCommand& command) {
+        const int status = cmd::alias(command, config);
+        refreshAliasCompletions();
+        return status;
+    }, true});
+    commands.emplace("unalias", Command{"Remove aliases (name..., -a: all)", [this](const ParsedCommand& command) {
+        const int status = cmd::unalias(command, config);
+        refreshAliasCompletions();
+        return status;
+    }, true});
     std::vector<std::string> names;
     names.reserve(commands.size());
     for (const auto& entry : commands) { names.push_back(entry.first); }
     InputHandler::setCommandNames(std::move(names));
+    config.loadRcFile();
+    refreshAliasCompletions();
+}
+
+void Shell::refreshAliasCompletions() const {
+    InputHandler::setAliasNames(config.aliasNames());
 }
 
 void Shell::refreshCurrentPath() {
@@ -166,7 +182,9 @@ void Shell::handleParseError() noexcept {
 
 void Shell::executeLine(const std::string& line) {
     try {
-        const auto pipelines = parseLine(line, currentPath);
+        // Expand aliases at the head of every `;`, `&&` and `|` segment before parsing,
+        // so alias values may themselves contain pipes, chains or redirections.
+        const auto pipelines = parseLine(config.expandAlias(line), currentPath);
         ChainOp precedingOp = ChainOp::NONE;
         for (const auto& pipeline : pipelines) {
             if (!running) { break; }
@@ -258,7 +276,7 @@ int Shell::clearScreen() {
 
 int Shell::showHelp() const {
     // Explicit ordering keeps the table stable despite unordered_map iteration order.
-    constexpr const char* order[] = {"pwd", "cd", "ls", "touch", "mkdir", "rm", "cp", "mv", "cat", "grep", "echo", "whoami", "arcfetch", "clear", "cls", "help", "exit"};
+    constexpr const char* order[] = {"pwd", "cd", "ls", "touch", "mkdir", "rm", "cp", "mv", "cat", "grep", "echo", "whoami", "arcfetch", "alias", "unalias", "clear", "cls", "help", "exit"};
     std::ostringstream table;
     constexpr const char* border = "+----------+------------------------------------------+\n";
     table << border
