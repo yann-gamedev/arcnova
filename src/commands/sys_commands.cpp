@@ -110,6 +110,37 @@ std::string memoryUsage() {
     return text.str();
 }
 
+std::string stripAnsi(const std::string& text) {
+    std::string result;
+    result.reserve(text.size());
+    for (std::size_t index = 0; index < text.size();) {
+        if (text[index] != '\x1b') {
+            result += text[index++];
+            continue;
+        }
+        ++index;
+        if (index == text.size()) { break; }
+        const char type = text[index++];
+        if (type == '[') {
+            // CSI: parameters/intermediates followed by a final byte in 0x40..0x7e.
+            while (index < text.size()) {
+                const auto ch = static_cast<unsigned char>(text[index++]);
+                if (ch >= 0x40 && ch <= 0x7e) { break; }
+            }
+        } else if (type == ']') {
+            // OSC (including hyperlinks): terminated by BEL or ESC followed by backslash.
+            while (index < text.size()) {
+                if (text[index++] == '\a') { break; }
+                if (text[index - 1] == '\x1b' && index < text.size() && text[index] == '\\') {
+                    ++index;
+                    break;
+                }
+            }
+        }
+    }
+    return result;
+}
+
 std::string foldCase(std::string text) {
     // Byte-wise case folding supports ASCII; UTF-8 bytes are left intact.
     for (auto& ch : text) {
@@ -121,25 +152,38 @@ std::string foldCase(std::string text) {
 } // namespace
 
 int grep(const core::ParsedCommand& command) {
-    if (command.args.size() != 2 || command.flags.find_first_not_of("in") != std::string::npos) {
-        return error("grep", "usage: grep [-i] [-n] <pattern> <file>", 2);
+    if (command.args.empty() || command.args.size() > 2
+        || (!command.pipedInput && command.args.size() != 2)
+        || command.flags.find_first_not_of("in") != std::string::npos) {
+        return error("grep", "usage: grep [-i] [-n] <pattern> [file] (file required without pipe)", 2);
     }
     try {
-        const auto path = std::filesystem::u8path(command.args[1]);
-        std::error_code ec;
-        if (!std::filesystem::is_regular_file(path, ec)) {
-            return error("grep", command.args[1] + ": " + (ec ? ec.message() : "not a regular file"), 2);
+        std::ifstream file;
+        std::istringstream piped;
+        std::istream* input = nullptr;
+        if (command.pipedInput) {
+            piped.str(*command.pipedInput);
+            input = &piped;
+        } else {
+            const auto path = std::filesystem::u8path(command.args[1]);
+            std::error_code ec;
+            if (!std::filesystem::is_regular_file(path, ec)) {
+                return error("grep", command.args[1] + ": " + (ec ? ec.message() : "not a regular file"), 2);
+            }
+            file.open(path);
+            if (!file) { return error("grep", "cannot open " + command.args[1], 2); }
+            input = &file;
         }
-        std::ifstream file(path);
-        if (!file) { return error("grep", "cannot open " + command.args[1], 2); }
         const bool insensitive = command.flags.find('i') != std::string::npos;
         const bool numbered = command.flags.find('n') != std::string::npos;
         const auto pattern = insensitive ? foldCase(command.args[0]) : command.args[0];
         std::string line;
         std::size_t number = 0;
         bool matched = false;
-        while (std::getline(file, line)) {
+        while (std::getline(*input, line)) {
             ++number;
+            // Match and highlight the same visible bytes, not ANSI color parameters.
+            line = stripAnsi(line);
             const auto haystack = insensitive ? foldCase(line) : line;
             auto position = haystack.find(pattern);
             if (position == std::string::npos) { continue; }
@@ -159,7 +203,7 @@ int grep(const core::ParsedCommand& command) {
             }
             std::cout << line.substr(printed) << '\n';
         }
-        if (file.bad() || !std::cout) { return error("grep", "I/O failure", 2); }
+        if (input->bad() || !std::cout) { return error("grep", "I/O failure", 2); }
         return matched ? 0 : 1;
     } catch (const std::filesystem::filesystem_error& exception) {
         return error("grep", exception.what(), 2);

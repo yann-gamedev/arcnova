@@ -20,7 +20,7 @@ public:
     [[nodiscard]] std::string formatPrompt() const;
     [[nodiscard]] bool isRunning() const noexcept;
     void executeLine(const std::string& line);
-    void executeCommand(const ParsedCommand& command);
+    void executeCommand(const ParsedCommand& command, bool captureOutput = false);
     [[nodiscard]] const std::filesystem::path& getCurrentPath() const noexcept;
     void handleParseError() noexcept;
     void handleInterrupt() noexcept;

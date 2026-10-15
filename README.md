@@ -45,6 +45,7 @@ The result is a single standalone `ArcNova.exe` with a retro-modern terminal int
 
 - **Native built-in commands** for navigation, file management, text search, and system information.
 - **POSIX-style argument parsing** with single and double quotes, combined flags (`-la`, `-rf`), the `--` end-of-flags marker, and `~` home expansion.
+- **Native chaining, piping, and output redirection (v1.2 development)**: combine built-in and external commands with `&&`, `;`, `|`, `>`, and `>>`.
 - **Dynamic prompt** that abbreviates your home directory to `~`, always uses forward slashes, and changes colour based on the previous command's result.
 - **External program execution** through `CreateProcessW`, with live output, inherited console input, and correct exit codes.
 - **Safety-first file operations**: protected system paths cannot be deleted, junctions are not followed during recursive deletion, and copy/move never silently overwrite existing files.
@@ -123,6 +124,37 @@ see [the v1.1 development notes](docs/v1.1-input.md).
 
 ---
 
+## Command Composition (v1.2 development)
+
+The development build handles chaining, pipes, and output redirection natively for
+both built-in and external commands. These features are not in the v1.0.0 release.
+
+| Operator | Behaviour |
+| :--- | :--- |
+| `&&` | Run the next pipeline only when the previous executed pipeline succeeded. |
+| `;` | Run the next pipeline regardless of the previous status. |
+| `\|` | Pass one command's buffered stdout to the next command. |
+| `>` | Create or overwrite an output file. |
+| `>>` | Create or append to an output file. |
+
+```text
+mkdir -p reports && ls -la > reports/listing.txt
+ls -la | grep .cpp | grep -i parser
+echo first > notes.txt; echo second >> notes.txt
+cat notes.txt | findstr.exe second | grep second
+ls -la | grep .cpp > "cpp files.txt"
+```
+
+Operators inside single or double quotes are literal text. Only stdout is piped or
+redirected; errors remain on stderr. A pipeline's status is its last command's status.
+Pipelines are buffered and sequential, not concurrent streaming; built-in `grep`
+accepts pipe input, but built-in `cat` still requires file arguments.
+
+See [the v1.2 development notes](docs/v1.2-composition.md) for contracts, limitations,
+and verification scenarios.
+
+---
+
 ## Command Reference
 
 Type `help` inside ArcNova to see this list at any time.
@@ -179,7 +211,7 @@ arcnova ~ ❯ rm -rf Projects-backup
 
 | Command | Description |
 | :--- | :--- |
-| `grep [-i] [-n] <pattern> <file>` | Print lines containing `pattern`, with each match highlighted. `-i` ignores letter case and `-n` shows line numbers. |
+| `grep [-i] [-n] <pattern> [file]` | Print matching lines with highlights. A file is required without a pipe; pipe input takes priority when present. `-i` ignores letter case and `-n` shows line numbers. |
 | `echo <text>...` | Print the arguments separated by spaces. Use `echo -- -text` to print text that begins with `-`. |
 | `whoami` | Print the current Windows user name. |
 | `arcfetch` | Show the ArcNova logo beside live system information. |
@@ -230,8 +262,8 @@ How external commands are run:
 
 1. ArcNova first starts the program directly with `CreateProcessW`, letting Windows locate it through `%PATH%`.
 2. If the program cannot be started directly (for example a `.bat`/`.cmd` script or a `cmd.exe` built-in such as `ver`), the original command line is passed to `cmd.exe /d /s /c`.
-3. Command lines containing pipes or redirection (`|`, `>`, `<`, `&`) are always sent to `cmd.exe`.
-4. ArcNova waits for the program to finish. Its exit code decides the prompt colour.
+3. ArcNova parses `&&`, `;`, `|`, `>`, and `>>` before execution. External stages receive native stdin/stdout handles; remaining cmd-specific syntax can still trigger the `cmd.exe` fallback.
+4. ArcNova waits for each stage to finish. The last executed pipeline's status decides the prompt colour.
 
 Built-in commands always take priority. To use the Windows version of a command that ArcNova also provides, call it explicitly, for example `cmd /c echo hello`.
 
@@ -447,7 +479,8 @@ Each test prints a line beginning with `PASS` when it succeeds.
 
 ## Known Limitations
 
-- Pipes and redirection are handled by `cmd.exe`, so they only apply to external programs. A line that starts with a built-in command, such as `ls | findstr src`, runs the built-in without the pipe.
+- v1.2 pipes buffer complete outputs before running the next stage. They are not suitable for unbounded streams or interactive pipeline stages; large outputs consume memory and external stages also use temporary disk space.
+- Native input redirection (`<`), stderr redirection (`2>`), `||`, background jobs, and multiple output targets per command are not supported. Do not use descriptor syntax such as `2>`: `>` is parsed as stdout redirection.
 - `grep` matches literal text, and `-i` ignores case for English letters (A-Z) only.
 - `mv` cannot move items between different drives. Use `cp -r` followed by `rm -r` instead.
 - `rm` deletes permanently and does not use the Recycle Bin.
@@ -459,7 +492,7 @@ Each test prints a line beginning with `PASS` when it succeeds.
 ## Roadmap
 
 - Complete v1.1 interactive input validation and improve Unicode/multiline rendering
-- Native pipes and redirection between built-in commands
+- Extend v1.2 buffered pipelines with streaming execution and more stdin-aware built-ins
 - Environment variable expansion (`$VAR`, `%VAR%`)
 - Configurable prompt and colour themes
 

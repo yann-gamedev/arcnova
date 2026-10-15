@@ -8,6 +8,7 @@
 #endif
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
 #include <iostream>
 #include <limits>
@@ -36,6 +37,38 @@ int report(const char* operation, DWORD code) {
     return 1;
 }
 
+// Buffered stages use temporary, delete-on-close files for child stdin/stdout.
+// Unlike synchronous anonymous pipes, these cannot deadlock on large output.
+bool createSpool(Handle& file) {
+    std::array<wchar_t, MAX_PATH + 1> directory{};
+    const DWORD length = GetTempPathW(static_cast<DWORD>(directory.size()), directory.data());
+    if (length == 0) { return false; }
+    if (length >= directory.size()) {
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return false;
+    }
+    std::array<wchar_t, MAX_PATH + 1> name{};
+    if (GetTempFileNameW(directory.data(), L"arc", 0, name.data()) == 0) { return false; }
+    SECURITY_ATTRIBUTES security{};
+    security.nLength = sizeof(security);
+    security.bInheritHandle = TRUE;
+    *file.address() = CreateFileW(name.data(), GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, &security,
+        OPEN_EXISTING, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+    if (file.get() == INVALID_HANDLE_VALUE) {
+        const DWORD code = GetLastError();
+        DeleteFileW(name.data());
+        SetLastError(code);
+        return false;
+    }
+    return true;
+}
+
+bool rewindSpool(HANDLE file) {
+    LARGE_INTEGER offset{};
+    return SetFilePointerEx(file, offset, nullptr, FILE_BEGIN) != FALSE;
+}
+
 bool toWide(const std::string& input, std::wstring& output) {
     if (input.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)())
         || input.find('\0') != std::string::npos) { return false; }
@@ -57,10 +90,14 @@ bool spawn(const wchar_t* application, const std::wstring& command,
 }
 } // namespace
 
-int executeExternalCommand(const std::string& rawInput, const std::filesystem::path& currentPath) {
-    if (rawInput.find_first_not_of(" \t\r\n") == std::string::npos) { return 0; }
+int executeExternalCommand(const std::string& rawInput, const std::filesystem::path& currentPath,
+                           const std::string& redirectOutFile, bool appendMode,
+                           const std::string* pipedInput, bool captureOutput) {
+    const auto begin = rawInput.find_first_not_of(" \t\r\n");
+    if (begin == std::string::npos) { return 0; }
+    const auto end = rawInput.find_last_not_of(" \t\r\n");
     std::wstring command;
-    if (!toWide(rawInput, command)) {
+    if (!toWide(rawInput.substr(begin, end - begin + 1), command)) {
         std::cerr << "ArcNova: invalid UTF-8 or embedded NUL in command line\n";
         return 2;
     }
@@ -86,8 +123,44 @@ int executeExternalCommand(const std::string& rawInput, const std::filesystem::p
             return report("DuplicateHandle", GetLastError());
         }
     }
-    startup.hStdInput = inherited[0].get();
-    startup.hStdOutput = inherited[1].get();
+    Handle inputSpool;
+    Handle outputSpool;
+    if (pipedInput != nullptr) {
+        if (!createSpool(inputSpool)) { return report("create input spool", GetLastError()); }
+        std::size_t offset = 0;
+        while (offset < pipedInput->size()) {
+            const auto remaining = pipedInput->size() - offset;
+            const DWORD chunk = static_cast<DWORD>((std::min)(remaining, std::size_t{65536}));
+            DWORD written = 0;
+            if (WriteFile(inputSpool.get(), pipedInput->data() + offset, chunk, &written, nullptr) == FALSE) {
+                return report("write input spool", GetLastError());
+            }
+            if (written == 0) { return report("write input spool", ERROR_WRITE_FAULT); }
+            offset += written;
+        }
+        if (!rewindSpool(inputSpool.get())) { return report("rewind input spool", GetLastError()); }
+    }
+    const bool capture = captureOutput && redirectOutFile.empty();
+    if (capture && !createSpool(outputSpool)) {
+        return report("create output spool", GetLastError());
+    }
+    Handle outputFile;
+    if (!redirectOutFile.empty()) {
+        const auto path = currentPath / std::filesystem::u8path(redirectOutFile);
+        SECURITY_ATTRIBUTES security{};
+        security.nLength = sizeof(security);
+        security.bInheritHandle = TRUE;
+        *outputFile.address() = CreateFileW(path.c_str(),
+            appendMode ? FILE_APPEND_DATA : GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, &security,
+            appendMode ? OPEN_ALWAYS : CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (outputFile.get() == INVALID_HANDLE_VALUE) {
+            return report("open output file", GetLastError());
+        }
+    }
+    startup.hStdInput = pipedInput != nullptr ? inputSpool.get() : inherited[0].get();
+    startup.hStdOutput = !redirectOutFile.empty() ? outputFile.get()
+                        : (capture ? outputSpool.get() : inherited[1].get());
     startup.hStdError = inherited[2].get();
     PROCESS_INFORMATION process{};
     const wchar_t* directory = currentPath.empty() ? nullptr : currentPath.c_str();
@@ -123,6 +196,23 @@ int executeExternalCommand(const std::string& rawInput, const std::filesystem::p
     DWORD exitCode = 0;
     if (GetExitCodeProcess(processHandle.get(), &exitCode) == FALSE) {
         return report("GetExitCodeProcess", GetLastError());
+    }
+    if (capture) {
+        if (!rewindSpool(outputSpool.get())) { return report("rewind output spool", GetLastError()); }
+        std::array<char, 65536> buffer{};
+        for (;;) {
+            DWORD count = 0;
+            if (ReadFile(outputSpool.get(), buffer.data(), static_cast<DWORD>(buffer.size()),
+                         &count, nullptr) == FALSE) {
+                return report("read output spool", GetLastError());
+            }
+            if (count == 0) { break; }
+            std::cout.write(buffer.data(), static_cast<std::streamsize>(count));
+            if (!std::cout) {
+                std::cerr << "ArcNova: cannot capture process output\n";
+                return 1;
+            }
+        }
     }
     // Preserve normal exit codes; Windows exception statuses do not fit int.
     return exitCode <= static_cast<DWORD>((std::numeric_limits<int>::max)())

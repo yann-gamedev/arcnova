@@ -15,6 +15,7 @@
 #endif
 #include <windows.h>
 
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -24,6 +25,26 @@
 
 namespace arcnova::core {
 namespace {
+
+class CoutRedirect {
+public:
+    explicit CoutRedirect(std::streambuf* buffer)
+        : previousState_(std::cout.rdstate()) {
+        std::cout.flush();
+        previousBuffer_ = std::cout.rdbuf(buffer);
+    }
+    ~CoutRedirect() {
+        // Always restore the console, including when a command throws.
+        try { std::cout.flush(); } catch (...) {}
+        std::cout.rdbuf(previousBuffer_);
+        std::cout.clear(previousState_);
+    }
+    CoutRedirect(const CoutRedirect&) = delete;
+    CoutRedirect& operator=(const CoutRedirect&) = delete;
+private:
+    std::ios::iostate previousState_;
+    std::streambuf* previousBuffer_ = nullptr;
+};
 
 std::filesystem::path findHomePath() {
     const DWORD size = GetEnvironmentVariableW(L"USERPROFILE", nullptr, 0);
@@ -145,14 +166,39 @@ void Shell::handleParseError() noexcept {
 
 void Shell::executeLine(const std::string& line) {
     try {
-        executeCommand(parseInput(line, currentPath));
+        const auto pipelines = parseLine(line, currentPath);
+        ChainOp precedingOp = ChainOp::NONE;
+        for (const auto& pipeline : pipelines) {
+            if (!running) { break; }
+            const bool shouldRun = precedingOp != ChainOp::AND || lastExitCode == 0;
+            if (shouldRun) {
+                std::string pipedInput;
+                for (std::size_t index = 0; index < pipeline.pipedCommands.size(); ++index) {
+                    if (!running) { break; }
+                    auto command = pipeline.pipedCommands[index];
+                    if (index != 0) { command.pipedInput = std::move(pipedInput); }
+                    const bool capture = index + 1 < pipeline.pipedCommands.size();
+                    if (capture) {
+                        std::stringstream output;
+                        {
+                            CoutRedirect redirect(output.rdbuf());
+                            executeCommand(command, true);
+                        }
+                        pipedInput = output.str();
+                    } else {
+                        executeCommand(command);
+                    }
+                }
+            }
+            precedingOp = pipeline.nextChainOp;
+        }
     } catch (const ParseError& error) {
         handleParseError();
         std::cerr << "ArcNova: parse error: " << error.what() << '\n';
     }
 }
 
-void Shell::executeCommand(const ParsedCommand& parsed) {
+void Shell::executeCommand(const ParsedCommand& parsed, bool captureOutput) {
     const auto& name = parsed.name;
     if (name.empty()) {
         return; // Blank input preserves the preceding command's status.
@@ -162,7 +208,10 @@ void Shell::executeCommand(const ParsedCommand& parsed) {
     if (command == commands.end()) {
         std::cout << std::flush;
         std::cerr << std::flush;
-        lastExitCode = executeExternalCommand(parsed.rawInput, currentPath);
+        lastExitCode = executeExternalCommand(parsed.rawInput, currentPath,
+                                              parsed.redirectOutFile, parsed.appendMode,
+                                              parsed.pipedInput ? &*parsed.pipedInput : nullptr,
+                                              captureOutput);
         // Consume the notification after the child handles Ctrl+C; do not discard
         // the next input line because of an interrupt from the previous command.
         (void)consumeInterrupt();
@@ -175,7 +224,29 @@ void Shell::executeCommand(const ParsedCommand& parsed) {
         lastExitCode = 2;
         return;
     }
-    lastExitCode = command->second.handler(parsed);
+    if (parsed.redirectOutFile.empty()) {
+        lastExitCode = command->second.handler(parsed);
+    } else {
+        const auto path = currentPath / std::filesystem::u8path(parsed.redirectOutFile);
+        std::ofstream output(path, std::ios::out
+                             | (parsed.appendMode ? std::ios::app : std::ios::trunc));
+        if (!output) {
+            std::cerr << "ArcNova: cannot open output file: " << parsed.redirectOutFile << '\n';
+            lastExitCode = 1;
+            return;
+        }
+        {
+            CoutRedirect redirect(output.rdbuf());
+            lastExitCode = command->second.handler(parsed);
+            std::cout.flush();
+            if (!std::cout) { lastExitCode = 1; }
+        }
+        output.close();
+        if (!output) {
+            std::cerr << "ArcNova: cannot write output file: " << parsed.redirectOutFile << '\n';
+            lastExitCode = 1;
+        }
+    }
     refreshCurrentPath();
 }
 
