@@ -6,6 +6,7 @@
 #include "commands/sys_commands.hpp"
 #include "ui/banner.hpp"
 #include "ui/colors.hpp"
+#include "ui/git_prompt.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -161,9 +162,14 @@ void Shell::refreshCurrentPath() {
 
 std::string Shell::formatPrompt() const {
     const auto& palette = ui::colors::currentTheme();
-    return std::string(palette.primary) + "arcnova" + ui::colors::Reset + " "
-           + palette.accent + displayPath(currentPath, homePath) + ui::colors::Reset + " "
-           + (lastExitCode == 0 ? ui::colors::Green : ui::colors::Red)
+    std::string prompt = std::string(palette.primary) + "arcnova" + ui::colors::Reset + " "
+                         + palette.accent + displayPath(currentPath, homePath)
+                         + ui::colors::Reset + " ";
+    const auto gitInfo = ui::getGitPromptInfo(currentPath);
+    if (!gitInfo.empty()) {
+        prompt += std::string(palette.gitColor) + "(" + gitInfo + ")" + ui::colors::Reset + " ";
+    }
+    return prompt + (lastExitCode == 0 ? ui::colors::Green : ui::colors::Red)
            + u8"❯" + ui::colors::Reset + " ";
 }
 
